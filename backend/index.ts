@@ -45,7 +45,15 @@ app.post('/login', async (req, res) => {
     const usuario = result.rows[0];
     if (usuario && await bcrypt.compare(contraseña, usuario.contraseña)) {
       const token = jwt.sign({ id: usuario.id }, process.env.JWT_SECRET!);
-      res.json({ token });
+      res.json({ 
+        token,
+        user: {
+          id: usuario.id,
+          nombre: usuario.nombre,
+          email: usuario.email,
+          rol: usuario.rol
+        }
+      });
     } else {
       res.status(401).json({ error: 'Credenciales inválidas' });
     }
@@ -71,6 +79,72 @@ app.get('/contenido', async (_req, res) => {
     const result = await pool.query('SELECT * FROM contenido');
     res.json(result.rows);
   } catch (error) {
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+// Ruta para obtener cursos
+app.get('/cursos', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT c.*, 
+             COUNT(con.id) as total_contenidos,
+             AVG(pu.puntuacion) as puntuacion_promedio
+      FROM cursos c
+      LEFT JOIN contenidos con ON c.id = con.curso_id
+      LEFT JOIN progreso_usuario pu ON c.id = pu.curso_id
+      GROUP BY c.id
+      ORDER BY c.created_at DESC
+    `);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error obteniendo cursos:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+// Ruta para obtener progreso del usuario
+app.get('/progreso/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await pool.query(`
+      SELECT c.titulo, c.categoria, pu.completado, pu.puntuacion, pu.fecha_completado
+      FROM progreso_usuario pu
+      JOIN cursos c ON pu.curso_id = c.id
+      WHERE pu.usuario_id = $1
+      ORDER BY pu.created_at DESC
+    `, [userId]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error obteniendo progreso:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+// Ruta para obtener estadísticas del dashboard
+app.get('/dashboard-stats/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const totalCursos = await pool.query('SELECT COUNT(*) FROM cursos');
+    const cursosCompletados = await pool.query(
+      'SELECT COUNT(*) FROM progreso_usuario WHERE usuario_id = $1 AND completado = true',
+      [userId]
+    );
+    const promedioNotas = await pool.query(
+      'SELECT AVG(puntuacion) FROM progreso_usuario WHERE usuario_id = $1 AND puntuacion IS NOT NULL',
+      [userId]
+    );
+    
+    res.json({
+      totalCursos: parseInt(totalCursos.rows[0].count),
+      cursosCompletados: parseInt(cursosCompletados.rows[0].count),
+      promedioNotas: parseFloat(promedioNotas.rows[0].avg) || 0
+    });
+  } catch (error) {
+    console.error('Error obteniendo estadísticas:', error);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });

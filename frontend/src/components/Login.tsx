@@ -10,8 +10,12 @@ const Login: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await axios.post('http://localhost:3001/login', { email, password });
+      const response = await axios.post('http://localhost:3001/login', { 
+        email, 
+        contraseña: password 
+      });
       localStorage.setItem('token', response.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data.user));
       window.location.href = '/dashboard';
     } catch (error) {
       alert('Error al iniciar sesión');
