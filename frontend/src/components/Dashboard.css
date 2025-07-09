@@ -1,0 +1,42 @@
+
+.dashboard-container {
+  padding: 40px;
+  background-color: #1a1a1a;
+  color: #fff;
+}
+
+.dashboard-container h2 {
+  font-family: 'Orbitron', sans-serif;
+  margin-bottom: 20px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.dashboard-item {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.dashboard-item h3 {
+  font-family: 'Orbitron', sans-serif;
+  margin-bottom: 10px;
+}
+
+.dashboard-item a {
+  color: #e82127;
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.dashboard-item a:hover {
+  color: #ff3b30;
+}
