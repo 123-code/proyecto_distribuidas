@@ -14,6 +14,19 @@ async function seedDatabase() {
   try {
     console.log('Conectando a la base de datos...');
     
+    // Crear tabla de usuarios si no existe
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS usuarios (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        contraseña VARCHAR(255) NOT NULL,
+        rol VARCHAR(50) DEFAULT 'student',
+        learning_style VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
     // Crear tablas adicionales para el contenido de aprendizaje
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cursos (
@@ -29,13 +42,23 @@ async function seedDatabase() {
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS contenidos (
+      CREATE TABLE IF NOT EXISTS lecciones (
         id SERIAL PRIMARY KEY,
         curso_id INTEGER REFERENCES cursos(id),
         titulo VARCHAR(255) NOT NULL,
-        tipo VARCHAR(50),
-        contenido TEXT,
+        descripcion TEXT,
         orden INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contenido_leccion (
+        id SERIAL PRIMARY KEY,
+        leccion_id INTEGER REFERENCES lecciones(id),
+        tipo_aprendizaje VARCHAR(50) NOT NULL,
+        contenido_url VARCHAR(500),
+        contenido_texto TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -45,11 +68,12 @@ async function seedDatabase() {
         id SERIAL PRIMARY KEY,
         usuario_id INTEGER REFERENCES usuarios(id),
         curso_id INTEGER REFERENCES cursos(id),
-        contenido_id INTEGER REFERENCES contenidos(id),
+        leccion_id INTEGER REFERENCES lecciones(id),
         completado BOOLEAN DEFAULT FALSE,
         fecha_completado TIMESTAMP,
         puntuacion INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(usuario_id, leccion_id)
       )
     `);
 
@@ -95,25 +119,45 @@ async function seedDatabase() {
       if (result.rows.length > 0) {
         const cursoId = result.rows[0].id;
         
-        // Insertar contenidos para cada curso
-        const contenidos = [
-          [cursoId, 'Introducción al tema', 'video', 'Contenido introductorio del curso', 1],
-          [cursoId, 'Conceptos básicos', 'texto', 'Explicación de conceptos fundamentales', 2],
-          [cursoId, 'Ejercicio práctico 1', 'ejercicio', 'Primer ejercicio práctico', 3],
-          [cursoId, 'Conceptos avanzados', 'video', 'Temas más complejos del curso', 4],
-          [cursoId, 'Proyecto final', 'proyecto', 'Proyecto integrador del curso', 5]
+        // Insertar lecciones para cada curso
+        const lecciones = [
+          [cursoId, 'Introducción al tema', 'Contenido introductorio del curso', 1],
+          [cursoId, 'Conceptos básicos', 'Explicación de conceptos fundamentales', 2],
+          [cursoId, 'Ejercicio práctico 1', 'Primer ejercicio práctico', 3],
+          [cursoId, 'Conceptos avanzados', 'Temas más complejos del curso', 4],
+          [cursoId, 'Proyecto final', 'Proyecto integrador del curso', 5]
         ];
 
-        for (const contenido of contenidos) {
-          await pool.query(`
-            INSERT INTO contenidos (curso_id, titulo, tipo, contenido, orden) 
-            VALUES ($1, $2, $3, $4, $5)
-          `, contenido);
+        for (const leccion of lecciones) {
+          const leccionResult = await pool.query(`
+            INSERT INTO lecciones (curso_id, titulo, descripcion, orden) 
+            VALUES ($1, $2, $3, $4)
+            RETURNING id
+          `, leccion);
+          
+          if (leccionResult.rows.length > 0) {
+            const leccionId = leccionResult.rows[0].id;
+            
+            // Insertar contenido para diferentes estilos de aprendizaje
+            const contenidos = [
+              [leccionId, 'visual', 'https://www.youtube.com/watch?v=ejemplo', 'Contenido visual con diagramas y gráficos'],
+              [leccionId, 'auditivo', 'https://open.spotify.com/episode/ejemplo', 'Contenido en formato de audio o podcast'],
+              [leccionId, 'verbal', null, 'Contenido textual detallado para lectura comprensiva'],
+              [leccionId, 'quinestesico', null, 'Ejercicios prácticos y actividades hands-on']
+            ];
+            
+            for (const contenido of contenidos) {
+              await pool.query(`
+                INSERT INTO contenido_leccion (leccion_id, tipo_aprendizaje, contenido_url, contenido_texto) 
+                VALUES ($1, $2, $3, $4)
+              `, contenido);
+            }
+          }
         }
       }
     }
 
-    console.log('Cursos y contenidos creados');
+    console.log('Cursos, lecciones y contenidos creados');
 
     // Insertar progreso de ejemplo
     const usuarios_result = await pool.query('SELECT id FROM usuarios WHERE rol = $1', ['student']);

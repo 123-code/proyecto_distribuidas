@@ -29,9 +29,9 @@ app.post('/register', async (req, res) => {
       [nombre, email, hashedPassword]
     );
     console.log('Resultado de inserción:', result.rows);
-    const token = jwt.sign({ id: result.rows[0].id }, process.env.JWT_SECRET!);
+    const token = jwt.sign({ id: result.rows[0].id, learningStyle: null }, process.env.JWT_SECRET!);
     console.log('Token generado:', token);
-    res.json({ token });
+    res.json({ token, user: { id: result.rows[0].id, nombre, email, learningStyle: null } });
   } catch (error) {
     console.error('Error en /register:', error);
     res.status(500).json({ error: 'Error en el servidor' });
@@ -51,7 +51,8 @@ app.post('/login', async (req, res) => {
           id: usuario.id,
           nombre: usuario.nombre,
           email: usuario.email,
-          rol: usuario.rol
+          rol: usuario.rol,
+          learningStyle: usuario.learning_style
         }
       });
     } else {
@@ -74,6 +75,121 @@ app.get('/perfil', async (req, res) => {
   }
 });
 
+app.put('/perfil/actualizar', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'No autorizado' });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
+    const { nombre, email, learningStyle } = req.body;
+
+    // Construir la consulta de actualización dinámicamente
+    let query = 'UPDATE usuarios SET';
+    const params = [];
+    let paramIndex = 1;
+
+    if (nombre) {
+      query += ` nombre = ${paramIndex++},`;
+      params.push(nombre);
+    }
+    if (email) {
+      query += ` email = ${paramIndex++},`;
+      params.push(email);
+    }
+    if (learningStyle) {
+      query += ` learning_style = ${paramIndex++},`;
+      params.push(learningStyle);
+    }
+
+    // Eliminar la última coma si hay campos para actualizar
+    if (params.length > 0) {
+      query = query.slice(0, -1); // Eliminar la última coma
+      query += ` WHERE id = ${paramIndex++} RETURNING id, nombre, email, learning_style;`;
+      params.push(decoded.id);
+
+      const result = await pool.query(query, params);
+      if (result.rows.length > 0) {
+        res.json(result.rows[0]);
+      } else {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+    } else {
+      res.status(400).json({ error: 'No hay campos para actualizar' });
+    }
+
+  } catch (error) {
+    console.error('Error en /perfil/actualizar:', error);
+    res.status(401).json({ error: 'Token inválido o error en el servidor' });
+  }
+});
+
+app.get('/lecciones/:cursoId', async (req, res) => {
+  try {
+    const { cursoId } = req.params;
+    const result = await pool.query('SELECT * FROM lecciones WHERE curso_id = $1 ORDER BY orden ASC', [cursoId]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error obteniendo lecciones:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+app.get('/lecciones/:leccionId/contenido/:tipoAprendizaje', async (req, res) => {
+  try {
+    const { leccionId, tipoAprendizaje } = req.params;
+    const result = await pool.query(
+      'SELECT * FROM contenido_leccion WHERE leccion_id = $1 AND tipo_aprendizaje = $2',
+      [leccionId, tipoAprendizaje]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error obteniendo contenido de lección:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+app.post('/lecciones/:leccionId/quiz', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'No autorizado' });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
+    const userId = decoded.id;
+    const { leccionId } = req.params;
+    const { score, cursoId } = req.body; // Asumo que el frontend envía el score y el cursoId
+
+    // Guardar el progreso del usuario y la puntuación
+    await pool.query(
+      'INSERT INTO progreso_usuario (usuario_id, curso_id, leccion_id, puntuacion, completado) VALUES ($1, $2, $3, $4, TRUE) ON CONFLICT (usuario_id, leccion_id) DO UPDATE SET puntuacion = EXCLUDED.puntuacion, completado = EXCLUDED.completado',
+      [userId, cursoId, leccionId, score]
+    );
+
+    // Lógica para cambiar el estilo de aprendizaje si el puntaje es bajo
+    if (score < 70) { // Umbral para cambiar el estilo de aprendizaje
+      const learningStyles = ['visual', 'auditivo', 'verbal', 'quinestesico'];
+      const currentLearningStyleResult = await pool.query('SELECT learning_style FROM usuarios WHERE id = $1', [userId]);
+      const currentLearningStyle = currentLearningStyleResult.rows[0]?.learning_style;
+
+      let newLearningStyle = currentLearningStyle;
+      if (currentLearningStyle) {
+        const currentIndex = learningStyles.indexOf(currentLearningStyle);
+        newLearningStyle = learningStyles[(currentIndex + 1) % learningStyles.length]; // Rotar al siguiente estilo
+      } else {
+        newLearningStyle = learningStyles[0]; // Si no tiene estilo, asignar el primero
+      }
+
+      await pool.query('UPDATE usuarios SET learning_style = $1 WHERE id = $2', [newLearningStyle, userId]);
+      res.json({ message: 'Quiz completado y estilo de aprendizaje actualizado', newLearningStyle });
+    } else {
+      res.json({ message: 'Quiz completado' });
+    }
+
+  } catch (error) {
+    console.error('Error al procesar quiz:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
 app.get('/contenido', async (_req, res) => {
   try {
     const result = await pool.query('SELECT * FROM contenido');
@@ -88,13 +204,13 @@ app.get('/cursos', async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT c.*, 
-             COUNT(con.id) as total_contenidos,
+             COUNT(l.id) as total_contenidos,
              AVG(pu.puntuacion) as puntuacion_promedio
       FROM cursos c
-      LEFT JOIN contenidos con ON c.id = con.curso_id
+      LEFT JOIN lecciones l ON c.id = l.curso_id
       LEFT JOIN progreso_usuario pu ON c.id = pu.curso_id
-      GROUP BY c.id
-      ORDER BY c.created_at DESC
+      GROUP BY c.id, c.titulo, c.descripcion, c.categoria, c.nivel, c.instructor
+      ORDER BY c.id DESC
     `);
     
     res.json(result.rows);

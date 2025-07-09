@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+import { useRouter } from 'next/navigation';
 import './Dashboard.css';
 
 interface Curso {
@@ -20,22 +21,37 @@ interface Stats {
   promedioNotas: number;
 }
 
+interface User {
+  id: number;
+  nombre: string;
+  email: string;
+  rol: string;
+  learningStyle?: string; // Nuevo campo
+}
+
 const Dashboard: React.FC = () => {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [cursos, setCursos] = useState<Curso[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
     
     if (userData) {
-      const parsedUser = JSON.parse(userData);
+      const parsedUser: User = JSON.parse(userData);
       setUser(parsedUser);
       
       // Obtener cursos disponibles
       axios.get('http://localhost:3001/cursos')
-        .then(response => setCursos(response.data))
-        .catch(err => console.error(err));
+        .then(response => {
+          console.log('Cursos obtenidos:', response.data);
+          setCursos(response.data);
+        })
+        .catch(err => {
+          console.error('Error obteniendo cursos:', err);
+          alert('Error al cargar los cursos. Verifica que el backend esté ejecutándose.');
+        });
         
       // Obtener estadísticas del usuario
       axios.get(`http://localhost:3001/dashboard-stats/${parsedUser.id}`)
@@ -43,6 +59,10 @@ const Dashboard: React.FC = () => {
         .catch(err => console.error(err));
     }
   }, []);
+
+  const handleStartCourse = (cursoId: number) => {
+    router.push(`/curso/${cursoId}`);
+  };
 
   if (!user) return <div className="loading">Cargando...</div>;
 
@@ -52,6 +72,9 @@ const Dashboard: React.FC = () => {
         <h1>Dashboard de Aprendizaje</h1>
         <p>Bienvenido, {user.nombre}</p>
         <span className="user-role">{user.rol === 'superuser' ? 'Administrador' : user.rol}</span>
+        {user.learningStyle && (
+          <p className="learning-style">Estilo de Aprendizaje: {user.learningStyle}</p>
+        )}
       </div>
 
       {stats && (
@@ -91,7 +114,7 @@ const Dashboard: React.FC = () => {
                   <span>★ {parseFloat(curso.puntuacion_promedio).toFixed(1)}</span>
                 )}
               </div>
-              <button className="btn-primary">Comenzar Curso</button>
+              <button className="btn-primary" onClick={() => handleStartCourse(curso.id)}>Comenzar Curso</button>
             </div>
           ))}
         </div>
