@@ -20,15 +20,20 @@ const pool = new Pool({
 
 app.post('/register', async (req, res) => {
   const { nombre, email, contraseña } = req.body;
+  console.log('Datos recibidos:', { nombre, email, contraseña });
   try {
     const hashedPassword = await bcrypt.hash(contraseña, 10);
+    console.log('Contraseña hasheada:', hashedPassword);
     const result = await pool.query(
       'INSERT INTO usuarios (nombre, email, contraseña) VALUES ($1, $2, $3) RETURNING id',
       [nombre, email, hashedPassword]
     );
+    console.log('Resultado de inserción:', result.rows);
     const token = jwt.sign({ id: result.rows[0].id }, process.env.JWT_SECRET!);
+    console.log('Token generado:', token);
     res.json({ token });
   } catch (error) {
+    console.error('Error en /register:', error);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
